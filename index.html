@@ -562,40 +562,53 @@
     return _binId;
   }
 
+  const MAX_SCORES = 4; // only top 4 on the board
+
   async function fetchScores() {
     const binId = await ensureBin();
-    if (!binId) return localScores.slice(0, 10);
+    if (!binId) return localScores.slice(0, MAX_SCORES);
     try {
       const res = await fetch(`${JSONBIN_BASE}/b/${binId}/latest`, {
         headers: { "X-Master-Key": JSONBIN_API_KEY }
       });
       const data = await res.json();
-      return (data.record?.scores || []).slice(0, 10);
-    } catch { return localScores.slice(0, 10); }
+      return (data.record?.scores || []).slice(0, MAX_SCORES);
+    } catch { return localScores.slice(0, MAX_SCORES); }
+  }
+
+  // Returns true if score qualifies for the top 4
+  async function qualifiesForBoard(playerScore) {
+    const current = await fetchScores();
+    if (current.length < MAX_SCORES) return true;           // board not full yet
+    const lowestOnBoard = current[current.length - 1].score;
+    return playerScore > lowestOnBoard;                     // must beat the lowest
   }
 
   async function saveScore(name, score) {
     const entry = { name: name.toUpperCase().slice(0,12), score, date: new Date().toISOString().slice(0,10) };
 
-    // Always save locally too
+    // Save locally
     localScores.push(entry);
     localScores.sort((a,b) => b.score - a.score);
-    localScores = localScores.slice(0, 50);
+    localScores = localScores.slice(0, MAX_SCORES);
     localStorage.setItem("galactic_pixel_python_scores", JSON.stringify(localScores));
 
     const binId = await ensureBin();
-    if (!binId) { renderLeaderboard(localScores.slice(0,10)); return; }
+    if (!binId) { renderLeaderboard(localScores); return; }
 
     try {
       const current = await fetchScores();
-      const merged = [...current, entry].sort((a,b) => b.score - a.score).slice(0, 50);
+      // Add new entry, sort, keep only top 4
+      const merged = [...current, entry]
+        .sort((a,b) => b.score - a.score)
+        .slice(0, MAX_SCORES);
       await fetch(`${JSONBIN_BASE}/b/${binId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", "X-Master-Key": JSONBIN_API_KEY },
         body: JSON.stringify({ scores: merged })
       });
-      renderLeaderboard(merged.slice(0,10));
-    } catch { renderLeaderboard(localScores.slice(0,10)); }
+      renderLeaderboard(merged);
+    } catch { renderLeaderboard(localScores); }
   }
 
   async function loadLeaderboard() {
@@ -611,7 +624,7 @@
       el.innerHTML = '<div class="lb-loading">NO SCORES YET.<br>BE THE FIRST!</div>'; return;
     }
     const rankClass = i => i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
-    const rankIcon  = i => i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}.`;
+    const rankIcon  = i => i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '4.';
     el.innerHTML = scores.map((s,i) => `
       <div class="lb-entry">
         <div class="lb-rank ${rankClass(i)}">${rankIcon(i)}</div>
@@ -847,31 +860,35 @@
     gameRunning=false;
     clearInterval(gameInterval);
 
-    const topScore = localScores[0]?.score || 0;
-    const isHighScore = score > 0 && score >= topScore;
-
-    if (isHighScore || score > 0) {
-      // Show name entry if high score, else just game over
-      if (isHighScore) {
+    if (score > 0) {
+      const qualifies = await qualifiesForBoard(score);
+      if (qualifies) {
+        // Score makes the top 4 — ask for name
         document.getElementById("modalScore").textContent = score;
         document.getElementById("nameInput").value = "";
         document.getElementById("nameModal").classList.add("active");
         document.getElementById("nameInput").focus();
       } else {
-        showGameOver();
+        // Didn't make the board — show game over with "not quite" message
+        showGameOver(null, false);
       }
     } else {
-      showGameOver();
+      showGameOver(null, false);
     }
   }
 
-  function showGameOver(name) {
+  function showGameOver(name, qualified=true) {
     if (name) {
-      document.getElementById("goTitle").textContent = "HIGH SCORE!";
+      const allScores = document.querySelectorAll(".lb-score");
+      const topScore = allScores.length ? parseInt(allScores[0].textContent) || 0 : 0;
+      const isNumber1 = score >= topScore;
+      document.getElementById("goTitle").textContent = isNumber1 ? "🏆 #1 HIGH SCORE!" : "TOP 4!";
       document.getElementById("goSub").textContent = `SAVED AS: ${name}`;
     } else {
       document.getElementById("goTitle").textContent = "GAME OVER";
-      document.getElementById("goSub").textContent = score > 0 ? "GOOD EFFORT, PILOT." : "";
+      document.getElementById("goSub").textContent = score > 0
+        ? `SCORE ${score} — NOT ENOUGH FOR TOP 4`
+        : "TRY HARDER, PILOT!";
     }
     document.getElementById("goScore").textContent = score;
     document.getElementById("gameOverModal").classList.add("active");
@@ -882,7 +899,7 @@
     const name = document.getElementById("nameInput").value.trim() || "PLAYER";
     document.getElementById("nameModal").classList.remove("active");
     await saveScore(name, score);
-    showGameOver(name.toUpperCase());
+    showGameOver(name.toUpperCase(), true);
   });
   document.getElementById("nameInput").addEventListener("keydown", e => {
     if (e.key === "Enter") document.getElementById("modalSubmit").click();

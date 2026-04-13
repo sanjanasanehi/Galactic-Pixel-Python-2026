@@ -555,26 +555,10 @@
   const BIN_STORE_KEY   = "galactic_pixel_python_bin_id";
 
   let localScores = JSON.parse(localStorage.getItem("galactic_pixel_python_scores") || "[]");
-  let _binId = localStorage.getItem(BIN_STORE_KEY) || null;
+  let _binId = "69dcdb83856a6821892b6b9a"; // shared global bin — never changes
 
-  // Auto-create the bin if we don't have one yet
+  // Shared bin is hardcoded — no auto-create needed
   async function ensureBin() {
-    if (_binId) return _binId;
-    try {
-      const res = await fetch(`${JSONBIN_BASE}/b`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Master-Key": JSONBIN_API_KEY,
-          "X-Bin-Name": "galactic-pixel-python",
-          "X-Bin-Private": "false"
-        },
-        body: JSON.stringify({ scores: [] })
-      });
-      const data = await res.json();
-      _binId = data.metadata?.id || data.metadata?.bin_id || null;
-      if (_binId) localStorage.setItem(BIN_STORE_KEY, _binId);
-    } catch (e) { console.warn("Could not create bin:", e); }
     return _binId;
   }
 
